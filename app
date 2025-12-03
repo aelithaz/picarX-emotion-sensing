@@ -1,14 +1,67 @@
 # app.py
 
 import time
+import threading
 from typing import Optional, Tuple
 
 import cv2
 
 from car_controller import CarController
-from emotion_heuristics import EmotionHeuristics, FaceMetrics
+from emotion_heuristics import EmotionHeuristics, FaceMetrics, EmotionFerPlus
 from voice_control import VoiceThread
 from motion_controller import MotionController
+
+# SCRIPTED REACTIONS (keycodes)
+# W=87, S=83, A=65, D=68
+
+EMOTION_SCRIPTS = {
+    "happy": [
+        ("DOWN 87", 0.12),  # W down
+        ("UP 87",   0.05),  # W up
+        ("DOWN 68", 0.12),  # D down
+        ("UP 68",   0.05),  # D up
+        ("STOP",    0.00),
+    ],
+    "angry": [
+        ("DOWN 83", 0.15),  # S down
+        ("UP 83",   0.05),  # S up
+        ("DOWN 65", 0.10),  # A down
+        ("UP 65",   0.05),
+        ("STOP",    0.00),
+    ],
+    "neutral": [
+        ("STOP", 0.00),
+    ],
+    "no_face": [
+        ("STOP", 0.00),
+    ],
+}
+
+VOICE_SCRIPTS = {
+    "forward": [
+        ("DOWN 87", 0.20),
+        ("UP 87",   0.05),
+    ],
+    "back": [
+        ("DOWN 83", 0.20),
+        ("UP 83",   0.05),
+    ],
+    "left": [
+        ("DOWN 65", 0.15),
+        ("UP 65",   0.05),
+    ],
+    "right": [
+        ("DOWN 68", 0.15),
+        ("UP 68",   0.05),
+    ],
+    "spin": [
+        ("DOWN 68", 0.25),
+        ("UP 68",   0.05),
+        ("DOWN 65", 0.25),
+        ("UP 65",   0.05),
+        ("STOP",    0.00),
+    ],
+}
 
 
 class App:
@@ -19,9 +72,12 @@ class App:
         # Unified motion controller (keycode + logical actions)
         self.motion = MotionController(self.car, speed=18, turn_angle=20)
 
-        # Emotion detector
+        # Emotion detector (you can later swap to EmotionFerPlus if you want)
         self.detector = EmotionHeuristics()
         self.mode_emotion = False
+
+        # Script lock so reactions don’t overlap too wildly
+        self._script_lock = threading.Lock()
 
         # Voice thread; will call on_voice_command(cmd: str)
         self.voice = VoiceThread(self.on_voice_command)
@@ -36,101 +92,46 @@ class App:
 
     def on_voice_command(self, cmd: str):
         """
-        Skeleton: map voice recognition results to motion via keycodes.
-
-        Later hardcode how specific voice phrases map to keycodes, e.g.:
-
-            if cmd == "go forward":
-                self.motion.handle_line("DOWN 87")  # W down
-            elif cmd == "stop":
-                self.motion.handle_line("STOP")
-
-        For now, just prints the command.
+        Map voice recognition results to scripted keycode reactions.
         """
+        cmd = cmd.strip().lower()
         print(f"[Voice CMD] {cmd}")
 
         # Toggle emotion mode via voice if you want
-        if cmd == "emotion_on":
+        if cmd in ("emotion_on", "emotion on"):
             self.mode_emotion = True
+            print("[Voice] Emotion mode ON")
             return
-        if cmd == "emotion_off":
+        if cmd in ("emotion_off", "emotion off"):
             self.mode_emotion = False
+            print("[Voice] Emotion mode OFF")
             # optional: stop when leaving emotion mode
             # self.motion.handle_line("STOP")
             return
 
-        # TODO: replace with actual mappings from recognized text -> keycodes.
-        #
-        # Example:
-        #
-        # if cmd == "go forward":
-        #     self.motion.handle_line("DOWN 87")   # W down
-        # elif cmd == "stop":
-        #     self.motion.handle_line("STOP")
-        #
-        # if cmd == "reverse":
-        #     self.motion.handle_line("DOWN 83")   # S down
-        # elif cmd == "reverse stop":
-        #     self.motion.handle_line("UP 83")     # S up
-        #
-        # if cmd == "turn left":
-        #     self.motion.handle_line("DOWN 65")   # A down
-        # elif cmd == "left stop":
-        #     self.motion.handle_line("UP 65")     # A up
-        #
-        # if cmd == "turn right":
-        #     self.motion.handle_line("DOWN 68")   # D down
-        # elif cmd == "right stop":
-        #     self.motion.handle_line("UP 68")     # D up
+        # If we have a scripted reaction for this phrase, run it
+        if cmd in VOICE_SCRIPTS:
+            print(f"[Voice] Running script for '{cmd}'")
+            self.run_script(VOICE_SCRIPTS[cmd])
+            return
+
+        # Else: ignore or add more direct mappings here if you want
+        # e.g., "start" / "stop" could map to long holds instead
 
     # ------------------------------------------------------------------
-    # EMOTION → KEYCODE SKELETON
+    # EMOTION → KEYCODE SCRIPTS
     # ------------------------------------------------------------------
 
     def emotion_to_action(self, label: str):
         """
-        Skeleton: map emotion label -> sequences of keycode commands.
-
-        Here you can later hardcode your "reactions" as scripts of keycode
-        strings, e.g.:
-
-            self.motion.handle_line("DOWN 87")
-            time.sleep(0.1)
-            self.motion.handle_line("UP 87")
-
-        For now, everything is left as TODOs.
+        Map emotion label -> scripted sequence of keycode commands.
         """
-        if label == "happy":
-            # TODO: hardcode a sequence of keycode commands for "happy"
-            # Example:
-            # self.car.set_light_rgb(255, 215, 0)
-            # self.motion.handle_line("DOWN 87")  # W
-            # time.sleep(0.12)
-            # self.motion.handle_line("UP 87")
-            pass
+        script = EMOTION_SCRIPTS.get(label)
+        if not script:
+            return
 
-        elif label == "angry":
-            # TODO: sequence for "angry"
-            # Example:
-            # self.car.set_light_rgb(30, 144, 255)
-            # self.motion.handle_line("DOWN 83")  # S
-            # time.sleep(0.12)
-            # self.motion.handle_line("UP 83")
-            pass
-
-        elif label == "neutral":
-            # TODO: neutral behavior (maybe soft stop / white LED)
-            # Example:
-            # self.car.set_light_rgb(255, 255, 255)
-            # self.motion.handle_line("STOP")
-            pass
-
-        elif label == "no_face":
-            # TODO: when no face is detected (dim + stop?)
-            # Example:
-            # self.car.set_light_rgb(10, 10, 10)
-            # self.motion.handle_line("STOP")
-            pass
+        print(f"[Emotion] Running script for label={label}")
+        self.run_script(script)
 
     def draw_overlay(
         self,
@@ -158,7 +159,7 @@ class App:
             2,
         )
 
-        # Metrics
+        # Metrics (only if using EmotionHeuristics; FER+ returns None)
         if metrics:
             cv2.putText(
                 frame,
@@ -227,6 +228,25 @@ class App:
         except Exception:
             pass
         cv2.destroyAllWindows()
+
+    def run_script(self, script):
+        """
+        Run a scripted reaction: a list of (command_string, delay_seconds) pairs.
+        """
+        def _worker():
+            # prevent overlapping reaction scripts (optional but nice)
+            if not self._script_lock.acquire(blocking=False):
+                print("[App] Script already running, ignoring new one")
+                return
+            try:
+                for cmd, delay in script:
+                    self.motion.handle_line(cmd)
+                    if delay > 0:
+                        time.sleep(delay)
+            finally:
+                self._script_lock.release()
+
+        threading.Thread(target=_worker, daemon=True).start()
 
 
 if __name__ == "__main__":
