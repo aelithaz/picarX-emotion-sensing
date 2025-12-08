@@ -22,30 +22,22 @@ except ImportError:
 # W=87, S=83, A=65, D=68
 
 EMOTION_SCRIPTS = {
-    # Happy: two forward hops + playful wiggle (total ~1.4s)
+    # Happy: quick hop forward + playful wiggle
     "happy": [
-        # hop forward twice
-        ("DOWN 87", 0.15),
+        ("DOWN 87", 0.15),  # small forward hop
         ("UP 87",   0.05),
-        ("DOWN 87", 0.15),
-        ("UP 87",   0.05),
-
-        # wiggle right–left–right
-        ("DOWN 68", 0.12),
+        ("DOWN 68", 0.10),  # right wiggle
         ("UP 68",   0.05),
-        ("DOWN 65", 0.12),
+        ("DOWN 65", 0.10),  # left wiggle
         ("UP 65",   0.05),
-        ("DOWN 68", 0.12),
-        ("UP 68",   0.05),
-
         ("STOP",    0.00),
     ],
 
-   # Sad: reverse then forward back to position, small hesitant wiggle (~1.3s)
+    # Sad: reverse then forward back to position, small hesitant wiggle
     "sad": [
         ("DOWN 83", 0.18),   # reverse
         ("UP 83",   0.05),
-        
+
         ("DOWN 87", 0.18),   # forward return
         ("UP 87",   0.05),
 
@@ -58,16 +50,14 @@ EMOTION_SCRIPTS = {
         ("STOP",    0.00),
     ],
 
-    # Angry: strong retreat + aggressive spin (total ~1.6s)
+    # Angry: strong retreat + aggressive spin
     "angry": [
-        # back away twice
-        ("DOWN 83", 0.20),
+        ("DOWN 83", 0.20),  # reverse a bit
         ("UP 83",   0.05),
         ("DOWN 83", 0.20),
         ("UP 83",   0.05),
 
-        # spin to the right
-        ("DOWN 68", 0.20),
+        ("DOWN 68", 0.20),  # spin right
         ("UP 68",   0.05),
         ("DOWN 68", 0.20),
         ("UP 68",   0.05),
@@ -75,12 +65,11 @@ EMOTION_SCRIPTS = {
         ("STOP",    0.00),
     ],
 
-    # No face: just stop (kept simple so it doesn't jitter)
+    # No face: just stop
     "no_face": [
         ("STOP", 0.00),
     ],
 }
-
 
 VOICE_SCRIPTS = {
     "forward": [
@@ -127,6 +116,9 @@ class App:
         self._last_emotion_time = 0.0
         self._last_emotion_label = "no_face"
 
+        # Voice control toggle
+        self.voice_enabled = True
+
         # Script lock so reactions don’t overlap too wildly
         self._script_lock = threading.Lock()
 
@@ -166,7 +158,15 @@ class App:
         cmd = cmd.strip().lower()
         print(f"[Voice CMD] {cmd}")
 
-        # Toggle emotion mode via voice if you want
+        if cmd in ("voice_off", "voice off"):
+            self.voice_enabled = False
+            print("[Voice] Voice control DISABLED")
+            return
+
+        if not self.voice_enabled:
+            print("[Voice] Ignoring command (voice disabled)")
+            return
+
         if cmd in ("emotion_on", "emotion on"):
             self.mode_emotion = True
             print("[Voice] Emotion mode ON")
@@ -179,7 +179,22 @@ class App:
             print("[Voice] Emotion mode OFF")
             return
 
-        # If we have a scripted reaction for this phrase, run it
+        if cmd in ("happy", "be happy"):
+            print("[Voice] Triggering HAPPY emotion reaction (force)")
+            self.emotion_to_action("happy", force=True)
+            return
+
+        if cmd in ("sad", "be sad"):
+            print("[Voice] Triggering SAD emotion reaction (force)")
+            self.emotion_to_action("sad", force=True)
+            return
+
+        if cmd in ("angry", "be angry"):
+            print("[Voice] Triggering ANGRY emotion reaction (force)")
+            self.emotion_to_action("angry", force=True)
+            return
+
+        # If we have a scripted movement reaction for this phrase, run it
         if cmd in VOICE_SCRIPTS:
             print(f"[Voice] Running script for '{cmd}'")
             self.run_script(VOICE_SCRIPTS[cmd])
@@ -241,14 +256,18 @@ class App:
             x1, y1, x2, y2 = bbox
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
-        # Mode + emotion label
-        text = f"mode: {'EMOTION' if self.mode_emotion else 'IDLE'} | emotion: {label}"
+        # Mode + emotion label + voice mode
+        text = (
+            f"emotion_mode: {'ON' if self.mode_emotion else 'OFF'} | "
+            f"voice: {'ON' if self.voice_enabled else 'OFF'} | "
+            f"emotion: {label}"
+        )
         cv2.putText(
             frame,
             text,
             (10, 28),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
+            0.6,
             (50, 220, 50),
             2,
         )
@@ -268,7 +287,7 @@ class App:
         # Help text
         cv2.putText(
             frame,
-            "[E] toggle emotion mode  [1-4] test scripts  [Q] quit",
+            "[E] emotion mode  [V] voice toggle  [1-4] test scripts  [Q] quit",
             (10, h - 12),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.55,
@@ -314,12 +333,19 @@ class App:
                 # Keyboard controls
                 if key in (ord("q"), ord("Q")):
                     break
+
+                # Toggle emotion mode
                 if key in (ord("e"), ord("E")):
                     self.mode_emotion = not self.mode_emotion
                     print(f"[App] Emotion mode set to {self.mode_emotion}")
                     # reset gating when toggling mode
                     self._last_emotion_time = 0.0
                     self._last_emotion_label = "no_face"
+
+                # Toggle voice control
+                if key in (ord("v"), ord("V")):
+                    self.voice_enabled = not self.voice_enabled
+                    print(f"[App] Voice control set to {self.voice_enabled}")
 
                 # Manual test triggers for emotion scripts (bypass cooldown/label gating)
                 if key == ord("1"):

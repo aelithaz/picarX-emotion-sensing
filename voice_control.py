@@ -15,7 +15,7 @@ MODEL_PATH = "/home/alexnz2/vosk-model-small-en-us-0.15"
 SAMPLE_RATE = 16000
 BLOCK_SIZE = 4000
 
-GRAMMAR = '["left", "right", "forward", "back", "spin", "emotion on", "emotion off", "stop", "[unk]"]'
+GRAMMAR = '["left", "right", "forward", "back", "spin", "emotion on", "emotion off", "voice off", "happy", "be happy", "sad", "be sad", "angry", "be angry", "stop", "[unk]"]'
 
 
 class VoiceThread:
