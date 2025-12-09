@@ -4,14 +4,13 @@ from typing import Optional, Tuple
 import numpy as np
 import cv2
 import mediapipe as mp
-import onnxruntime as ort
 
 
 @dataclass
 class FaceMetrics:
     smile: float
     brow_furrow: float
-    mouth_open: float  # new: how wide the mouth is (normalized)
+    mouth_open: float
 
 
 class EmotionHeuristics:
@@ -84,24 +83,13 @@ class EmotionHeuristics:
                 mouth_open=mouth_open,
             )
 
-            # ------------------------------
             # Heuristic labeling
-            # ------------------------------
-            # Based on your test images:
-            # - Happy:    smile ~3.3, mouth moderately open
-            # - Sad:      smile ~1.5
-            # - Angry:    smile high, but mouth very open (shouting)
-            #
-            # Tweak these thresholds using the on-screen smile/brow/mouth values.
 
             if metrics.smile > 2.6 and metrics.mouth_open < 1.3:
-                # big wide smile, mouth not crazy open -> HAPPY
                 label = "happy"
             elif metrics.mouth_open >= 1.4 and metrics.smile > 2.0:
-                # mouth very open + high smile ratio -> ANGRY shout
                 label = "angry"
             elif metrics.smile < 2.0:
-                # lower smile -> use image2 as "sad"
                 label = "sad"
             else:
                 # fallback
@@ -135,83 +123,3 @@ class EmotionHeuristics:
             return label, metrics, bbox
         except Exception:
             return "sad", None, None
-
-
-class EmotionFerPlus:
-    """
-    Emotion detector using FER+ ONNX model + Haar cascade face detection.
-
-    Provides the same estimate_emotion(frame_bgr) API as EmotionHeuristics:
-        returns (label, FaceMetrics|None, bbox|None)
-    """
-
-    CASCADE_PATH = "/usr/share/opencv4/haarcascades/haarcascade_frontalface_default.xml"
-    MODEL_PATH = "/home/pi/emotion-ferplus-8.onnx"
-
-    EMOTION_LABELS = [
-        "neutral",
-        "happiness",
-        "surprise",
-        "sadness",
-        "anger",
-        "disgust",
-        "fear",
-        "contempt",
-    ]
-
-    def __init__(self):
-        self.face_cascade = cv2.CascadeClassifier(self.CASCADE_PATH)
-        if self.face_cascade.empty():
-            raise RuntimeError(f"Could not load Haar cascade from {self.CASCADE_PATH}")
-
-        self.session = ort.InferenceSession(
-            self.MODEL_PATH,
-            providers=["CPUExecutionProvider"],
-        )
-        self.input_name = self.session.get_inputs()[0].name
-        self.output_name = self.session.get_outputs()[0].name
-
-    def _classify_emotion_from_face(self, face_gray: np.ndarray):
-        face_resized = cv2.resize(face_gray, (64, 64))
-        face_resized = face_resized.astype("float32")
-        face_resized = np.expand_dims(face_resized, axis=0)
-        face_resized = np.expand_dims(face_resized, axis=0)
-        outputs = self.session.run([self.output_name], {self.input_name: face_resized})
-        scores = outputs[0][0]
-        idx = int(np.argmax(scores))
-        return self.EMOTION_LABELS[idx], float(scores[idx])
-
-    def estimate_emotion(
-        self,
-        frame_bgr,
-    ) -> Tuple[str, Optional[FaceMetrics], Optional[Tuple[int, int, int, int]]]:
-        h, w = frame_bgr.shape[:2]
-        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-
-        faces = self.face_cascade.detectMultiScale(
-            gray,
-            scaleFactor=1.3,
-            minNeighbors=5,
-            minSize=(60, 60),
-        )
-
-        if len(faces) == 0:
-            return "no_face", None, None
-
-        (x, y, fw, fh) = faces[0]
-        roi_gray = gray[y : y + fh, x : x + fw]
-
-        emotion, score = self._classify_emotion_from_face(roi_gray)
-
-        if emotion == "happiness":
-            label = "happy"
-        elif emotion in ("anger", "disgust", "fear", "contempt"):
-            label = "angry"
-        elif emotion == "sadness":
-            label = "sad"
-        else:
-            label = "sad"
-
-        bbox = (int(x), int(y), int(x + fw), int(y + fh))
-
-        return label, None, bbox
