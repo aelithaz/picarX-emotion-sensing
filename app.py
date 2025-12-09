@@ -7,7 +7,7 @@ from typing import Optional, Tuple
 import cv2
 
 from car_controller import CarController
-from emotion_heuristics import EmotionHeuristics, FaceMetrics, EmotionFerPlus
+from emotion_heuristics import EmotionHeuristics, FaceMetrics
 from voice_control import VoiceThread
 from motion_controller import MotionController
 
@@ -106,9 +106,8 @@ class App:
         # Unified motion controller (keycode + logical actions)
         self.motion = MotionController(self.car, speed=18, turn_angle=20)
 
-        # Emotion detector: you can swap between heuristics and FER+ if you like
-        # self.detector = EmotionFerPlus()     # ONNX FER+ (requires onnxruntime + haarcascade)
-        self.detector = EmotionHeuristics()    # MediaPipe heuristics
+        # Emotion detector (MediaPipe heuristics)
+        self.detector = EmotionHeuristics()
         self.mode_emotion = False
 
         # Emotion cooldown: minimum time between auto emotion reactions
@@ -147,9 +146,7 @@ class App:
             else:
                 print("[App] WARNING: No camera available; running without video/emotion.")
 
-    # ------------------------------------------------------------------
     # VOICE → KEYCODE SCRIPTS
-    # ------------------------------------------------------------------
 
     def on_voice_command(self, cmd: str):
         """
@@ -200,9 +197,7 @@ class App:
             self.run_script(VOICE_SCRIPTS[cmd])
             return
 
-    # ------------------------------------------------------------------
     # EMOTION → KEYCODE SCRIPTS (with cooldown + change check)
-    # ------------------------------------------------------------------
 
     def emotion_to_action(self, label: str, force: bool = False):
         """
@@ -211,7 +206,7 @@ class App:
         - Automatic calls (force=False):
             * At most one reaction every self.emotion_cooldown seconds
             * Only when label != last reacted label
-        - Manual test (force=True, via keys 1–4):
+        - Manual test (force=True, via keys 1–4 or voice commands):
             * Ignores cooldown + label check, does NOT affect cooldown state
         """
         script = EMOTION_SCRIPTS.get(label)
@@ -272,11 +267,11 @@ class App:
             2,
         )
 
-        # Metrics (only if using EmotionHeuristics; FER+ returns None)
+        # Metrics (FaceMetrics currently: smile + brow_furrow)
         if metrics:
             cv2.putText(
                 frame,
-                f"smile={metrics.smile:.2f}  brow={metrics.brow_furrow:.2f}  mouth={metrics.mouth_open:.2f}",
+                f"smile={metrics.smile:.2f}  brow={metrics.brow_furrow:.2f}",
                 (10, 58),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.6,
@@ -392,17 +387,12 @@ class App:
         cv2.destroyAllWindows()
 
     def run_script(self, script):
-        """
-        Run a scripted reaction: a list of (command_string, delay_seconds) pairs.
-        """
         def _worker():
-            # prevent overlapping reaction scripts (optional but nice)
             if not self._script_lock.acquire(blocking=False):
                 print("[App] Script already running, ignoring new one")
                 return
             try:
                 for cmd, delay in script:
-                    # send keycode-style command into MotionController
                     self.motion.handle_line(cmd)
                     if delay > 0:
                         time.sleep(delay)
